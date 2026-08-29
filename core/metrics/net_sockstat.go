@@ -63,7 +63,10 @@ func (c *sockstatCollector) Update() ([]*metric.Data, error) {
 	for _, container := range containers {
 		m, err := c.procStatMetrics(container)
 		if err != nil {
-			return nil, fmt.Errorf("couldn't get sockstat metrics for container %v: %w", container, err)
+			// Containers may exit between listing and reading; skip them
+			// so one vanished container cannot drop the whole scrape.
+			log.Errorf("sockstat metrics for container %v: %v", container, err)
+			continue
 		}
 		metrics = append(metrics, m...)
 	}

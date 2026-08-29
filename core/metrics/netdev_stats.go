@@ -69,7 +69,10 @@ func (c *netdevCollector) Update() ([]*metric.Data, error) {
 	for _, container := range containers {
 		devStats, err := c.getStats(container)
 		if err != nil {
-			return nil, fmt.Errorf("couldn't get netdev statistic for container %v: %w", container, err)
+			// Containers may exit between listing and reading; skip them
+			// so one vanished container cannot drop the whole scrape.
+			log.Errorf("netdev statistic for container %v: %v", container, err)
+			continue
 		}
 
 		for dev, stats := range devStats {

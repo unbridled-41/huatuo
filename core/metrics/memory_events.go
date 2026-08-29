@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"huatuo-bamai/internal/cgroups"
+	"huatuo-bamai/internal/log"
 	"huatuo-bamai/internal/matcher"
 
 	"huatuo-bamai/internal/pod"
@@ -62,7 +63,10 @@ func (c *memEventsCollector) Update() ([]*metric.Data, error) {
 	for _, container := range containers {
 		raw, err := c.cgroup.MemoryEventRaw(container.CgroupPath)
 		if err != nil {
-			return nil, err
+			// Containers may exit between listing and reading; skip them
+			// so one vanished container cannot drop the whole scrape.
+			log.Errorf("memory events for container %v: %v", container, err)
+			continue
 		}
 
 		for key, value := range raw {
