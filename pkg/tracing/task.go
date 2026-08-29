@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -178,6 +179,9 @@ func NewTaskWithIDLimit(
 	if taskID == "" {
 		return "", errors.New("task id is required")
 	}
+	if err := validateTaskBinary(execBinary); err != nil {
+		return "", err
+	}
 	taskCreateMu.Lock()
 	defer taskCreateMu.Unlock()
 	if _, loaded := taskLifeTmpCache.Load(taskID); loaded {
@@ -219,6 +223,18 @@ func activeTaskCount() int {
 		return true
 	})
 	return count
+}
+
+// validateTaskBinary restricts the tracer name to a bare file name resolved
+// inside TaskBinDir. The task API is reachable without authentication, so a
+// caller-supplied name such as "../bin/bash" or "/bin/sh" must never reach
+// exec.CommandContext.
+func validateTaskBinary(execBinary string) error {
+	if execBinary == "" || execBinary == "." || execBinary == ".." ||
+		filepath.Base(execBinary) != execBinary {
+		return fmt.Errorf("task binary %q must be a bare file name within the tool directory", execBinary)
+	}
+	return nil
 }
 
 func runTask(ctx context.Context, task *task) {

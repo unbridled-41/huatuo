@@ -116,6 +116,64 @@ func TestNewTaskWithIDLimitAllowsRetryButRejectsNewTask(t *testing.T) {
 	}
 }
 
+func TestValidateTaskBinary(t *testing.T) {
+	tests := []struct {
+		name       string
+		execBinary string
+		wantErr    bool
+	}{
+		{name: "bare file name", execBinary: "iotracing"},
+		{name: "empty name", execBinary: "", wantErr: true},
+		{name: "parent traversal", execBinary: "../../bin/bash", wantErr: true},
+		{name: "single parent", execBinary: "../escape", wantErr: true},
+		{name: "absolute path", execBinary: "/bin/sh", wantErr: true},
+		{name: "subdirectory", execBinary: "tools/iotracing", wantErr: true},
+		{name: "dot", execBinary: ".", wantErr: true},
+		{name: "double dot", execBinary: "..", wantErr: true},
+	}
+
+	for i := range tests {
+		t.Run(tests[i].name, func(t *testing.T) {
+			err := validateTaskBinary(tests[i].execBinary)
+			if tests[i].wantErr && err == nil {
+				t.Errorf("validateTaskBinary(%q) err=nil, want error", tests[i].execBinary)
+			}
+			if !tests[i].wantErr && err != nil {
+				t.Errorf("validateTaskBinary(%q) err=%v, want nil", tests[i].execBinary, err)
+			}
+		})
+	}
+}
+
+func TestNewTaskWithIDLimitRejectsPathTraversal(t *testing.T) {
+	clearTaskCache()
+	t.Cleanup(clearTaskCache)
+
+	binDir := t.TempDir()
+	outside := t.TempDir()
+	createExecutableScript(t, outside, "escape.sh", "#!/bin/sh\necho PWNED-ESCAPE\n")
+
+	origBinDir := TaskBinDir
+	TaskBinDir = binDir
+	t.Cleanup(func() { TaskBinDir = origBinDir })
+
+	rel, err := filepath.Rel(binDir, filepath.Join(outside, "escape.sh"))
+	if err != nil {
+		t.Fatalf("Rel() error=%v", err)
+	}
+
+	id, err := NewTaskWithIDLimit("escape-attempt-2026", rel, 2*time.Second, TaskStorageStdout, nil, 0)
+	if err == nil {
+		t.Fatalf("NewTaskWithIDLimit(%q) err=nil, want traversal rejection", rel)
+	}
+	if id != "" {
+		t.Errorf("NewTaskWithIDLimit(%q) id=%q, want empty", rel, id)
+	}
+	if _, ok := taskLifeTmpCache.Load("escape-attempt-2026"); ok {
+		t.Error("traversal task was stored and may have executed")
+	}
+}
+
 func TestResultNotFound(t *testing.T) {
 	clearTaskCache()
 
