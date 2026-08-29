@@ -17,6 +17,7 @@ package provider
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"unsafe"
@@ -231,4 +232,44 @@ func TestOffCPUProfileTypeUsesNanosecondsWithoutSampleRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, opt.SampleRate)
 	require.Equal(t, "process_offcpu:offcpu:nanoseconds:offcpu:nanoseconds", profileType)
+}
+
+func TestIsOnlyLostSamples(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "pure lost samples",
+			err:  &bpf.PerfEventSamplesLostError{Count: 7},
+			want: true,
+		},
+		{
+			name: "real read failure",
+			err:  fmt.Errorf("read: %w", errors.New("bad fd")),
+			want: false,
+		},
+		{
+			name: "read failure joined with lost samples",
+			err: errors.Join(
+				fmt.Errorf("read: %w", errors.New("bad fd")),
+				&bpf.PerfEventSamplesLostError{Count: 3},
+			),
+			want: false,
+		},
+	}
+
+	for i := range tests {
+		t.Run(tests[i].name, func(t *testing.T) {
+			if got := isOnlyLostSamples(tests[i].err); got != tests[i].want {
+				t.Errorf("isOnlyLostSamples(%v) = %v, want %v", tests[i].err, got, tests[i].want)
+			}
+		})
+	}
 }

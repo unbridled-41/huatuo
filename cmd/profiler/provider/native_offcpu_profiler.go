@@ -154,6 +154,12 @@ func (p *cpuNativeProfiler) readOffCPUDataLoop(
 			if errors.Is(err, types.ErrExitByCancelCtx) {
 				return nil
 			}
+			// ReadBatch joins read/decode failures with the lost-samples
+			// count. Retrying forever on a real failure would silently
+			// produce an empty profile.
+			if !isOnlyLostSamples(err) {
+				return err
+			}
 		}
 
 		if len(batch) == 0 {
@@ -165,6 +171,29 @@ func (p *cpuNativeProfiler) readOffCPUDataLoop(
 			}
 		}
 	}
+}
+
+// isOnlyLostSamples reports whether err carries nothing but lost-sample
+// information. ReadBatch joins every failure with a lost-samples error, so
+// a bare error means a pure loss while a joined error also contains a real
+// read or decode failure.
+func isOnlyLostSamples(err error) bool {
+	var lostErr *bpf.PerfEventSamplesLostError
+	if !errors.As(err, &lostErr) {
+		return false
+	}
+
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		return true
+	}
+	for _, part := range joined.Unwrap() {
+		var partLost *bpf.PerfEventSamplesLostError
+		if !errors.As(part, &partLost) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *ringBufferContext) aggregateOffCPUBatch(batch []any, enqueue func(any)) {
