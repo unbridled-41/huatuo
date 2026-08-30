@@ -52,7 +52,7 @@ func newNetdevCollector() (*tracing.EventTracingAttr, error) {
 
 func (c *netdevCollector) Update() ([]*metric.Data, error) {
 	// normal containers
-	containers, err := pod.NormalContainers()
+	containers, err := normalContainers()
 	if err != nil {
 		return nil, fmt.Errorf("GetNormalContainers: %w", err)
 	}

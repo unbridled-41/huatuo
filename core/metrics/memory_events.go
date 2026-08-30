@@ -21,7 +21,6 @@ import (
 	"huatuo-bamai/internal/log"
 	"huatuo-bamai/internal/matcher"
 
-	"huatuo-bamai/internal/pod"
 	"huatuo-bamai/pkg/metric"
 	"huatuo-bamai/pkg/tracing"
 )
@@ -54,7 +53,7 @@ func (c *memEventsCollector) Update() ([]*metric.Data, error) {
 		return nil, fmt.Errorf("memory events filter: %w", err)
 	}
 
-	containers, err := pod.NormalContainers()
+	containers, err := normalContainers()
 	if err != nil {
 		return nil, fmt.Errorf("get normal container: %w", err)
 	}

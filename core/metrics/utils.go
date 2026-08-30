@@ -17,7 +17,13 @@ package collector
 import (
 	"bufio"
 	"os"
+
+	"huatuo-bamai/internal/pod"
 )
+
+// normalContainers is a seam for tests; production code uses
+// pod.NormalContainers.
+var normalContainers = pod.NormalContainers
 
 func CountLines(path string) (int64, error) {
 	f, err := os.Open(path)
