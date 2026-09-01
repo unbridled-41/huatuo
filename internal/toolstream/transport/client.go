@@ -132,12 +132,9 @@ func (c *Client) End() error {
 	return errors.Join(sendErr, closeErr)
 }
 
-// dialUDS is a seam for tests; production code uses DialUDS.
-var dialUDS = DialUDS
-
 // NewClient dials path, sends the handshake, and returns a ready Client.
 func NewClient(path, toolName, version, taskID string) (*Client, error) {
-	conn, err := dialUDS(path)
+	conn, err := DialUDS(path)
 	if err != nil {
 		return nil, err
 	}
