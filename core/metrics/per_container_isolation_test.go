@@ -17,6 +17,8 @@ package collector
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"huatuo-bamai/internal/cgroups"
@@ -25,7 +27,14 @@ import (
 	"huatuo-bamai/pkg/metric"
 )
 
-// withFixtureProcfs points /proc at a temp tree and returns its root.
+const (
+	sockstatFixture = "sockets: used 7\nTCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1\n"
+	netdevFixture   = "Inter-|   Receive                            |  Transmit\n" +
+		" face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n" +
+		"  eth0: 1000    1    0    0    0     0          0         0     2000       2    0    0    0     0       0          0\n"
+)
+
+// Redirect procfs so host and container failure boundaries are deterministic.
 func withFixtureProcfs(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -35,17 +44,18 @@ func withFixtureProcfs(t *testing.T) string {
 	return root
 }
 
-// withFakeContainers overrides the container listing seam.
-func withFakeContainers(t *testing.T, containers map[string]*pod.Container) {
+func writeProcNetFile(t *testing.T, root string, pid int, name, content string) {
 	t.Helper()
-	original := normalContainers
-	normalContainers = func() (map[string]*pod.Container, error) {
-		return containers, nil
+	dir := filepath.Join(root, "proc", strconv.Itoa(pid), "net")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error=%v", dir, err)
 	}
-	t.Cleanup(func() { normalContainers = original })
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error=%v", path, err)
+	}
 }
 
-// findSeries returns the first data point with the given name and value.
 func findSeries(data []*metric.Data, name string, value float64) bool {
 	for _, d := range data {
 		if d.Name() == name && d.Value == value {
@@ -59,45 +69,43 @@ func findSeries(data []*metric.Data, name string, value float64) bool {
 // whole scrape: the healthy container's metrics must still be exported.
 func TestSockstatCollectorSkipsBrokenContainer(t *testing.T) {
 	root := withFixtureProcfs(t)
+	writeProcNetFile(t, root, 1, "sockstat", sockstatFixture)
+	writeProcNetFile(t, root, 1111, "sockstat", sockstatFixture)
+	writeProcNetFile(t, root, 2222, "sockstat", "garbage\n")
 
-	for pid, content := range map[int]string{
-		1111: "sockets: used 7\nTCP: inuse 1 orphan 0 tw 0 alloc 1 mem 1\n",
-		2222: "garbage\n",
-	} {
-		dir := filepath.Join(root, "proc", itoa(pid), "net")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("MkdirAll() error=%v", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "sockstat"), []byte(content), 0o600); err != nil {
-			t.Fatalf("WriteFile() error=%v", err)
-		}
-	}
-
-	withFakeContainers(t, map[string]*pod.Container{
+	containers := map[string]*pod.Container{
 		"a": {Name: "healthy", InitPid: 1111, Labels: map[string]any{"HostNamespace": "default"}},
 		"b": {Name: "broken", InitPid: 2222, Labels: map[string]any{"HostNamespace": "default"}},
-	})
+	}
 
 	collector := &sockstatCollector{}
-	data, err := collector.Update()
+	data, err := collector.collect(containers)
 	if err != nil {
-		t.Fatalf("Update() error=%v, want broken container skipped", err)
+		t.Fatalf("collect() error=%v, want broken container skipped", err)
 	}
 	if !findSeries(data, "container_sockets_used", 7) {
 		t.Errorf("healthy container's sockets_used=7 missing from %d series", len(data))
 	}
+	if !findSeries(data, "sockets_used", 7) {
+		t.Errorf("host sockets_used=7 missing from %d series", len(data))
+	}
 }
 
-func itoa(v int) string {
-	if v == 0 {
-		return "0"
+func TestSockstatCollectorReturnsHostFailure(t *testing.T) {
+	root := withFixtureProcfs(t)
+	writeProcNetFile(t, root, 1, "sockstat", "garbage\n")
+	writeProcNetFile(t, root, 1111, "sockstat", sockstatFixture)
+
+	collector := &sockstatCollector{}
+	data, err := collector.collect(map[string]*pod.Container{
+		"a": {Name: "healthy", InitPid: 1111, Labels: map[string]any{"HostNamespace": "default"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "host sockstat") {
+		t.Fatalf("collect() error=%v, want host sockstat error", err)
 	}
-	digits := ""
-	for v > 0 {
-		digits = string(rune('0'+v%10)) + digits
-		v /= 10
+	if !findSeries(data, "container_sockets_used", 7) {
+		t.Errorf("partial container sockets_used=7 missing from %d series", len(data))
 	}
-	return digits
 }
 
 // netdev_stats must keep the healthy container's series when another
@@ -110,32 +118,66 @@ func TestNetdevCollectorSkipsBrokenContainer(t *testing.T) {
 	Set(testConfig)
 
 	root := withFixtureProcfs(t)
+	writeProcNetFile(t, root, 1, "dev", netdevFixture)
+	writeProcNetFile(t, root, 1111, "dev", netdevFixture)
 
-	for pid, content := range map[int]string{
-		1111: "Inter-|   Receive                            |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n  eth0: 1000    1    0    0    0     0          0         0     2000       2    0    0    0     0       0          0\n",
-		2222: "garbage\n",
-	} {
-		dir := filepath.Join(root, "proc", itoa(pid), "net")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("MkdirAll() error=%v", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "dev"), []byte(content), 0o600); err != nil {
-			t.Fatalf("WriteFile() error=%v", err)
-		}
-	}
-
-	withFakeContainers(t, map[string]*pod.Container{
+	containers := map[string]*pod.Container{
 		"a": {Name: "healthy", InitPid: 1111, Labels: map[string]any{"HostNamespace": "default"}},
 		"b": {Name: "broken", InitPid: 2222, Labels: map[string]any{"HostNamespace": "default"}},
-	})
+	}
 
 	collector := &netdevCollector{}
-	data, err := collector.Update()
+	if _, err := collector.getStats(containers["b"], nil, false); err == nil {
+		t.Fatal("getStats() error=nil for broken container PID 2222")
+	}
+	data, err := collector.collect(containers)
 	if err != nil {
-		t.Fatalf("Update() error=%v, want broken container skipped", err)
+		t.Fatalf("collect() error=%v, want broken container skipped", err)
 	}
 	if !findSeries(data, "container_receive_bytes_total", 1000) {
 		t.Errorf("healthy container's receive_bytes_total=1000 missing from %d series", len(data))
+	}
+	if !findSeries(data, "receive_bytes_total", 1000) {
+		t.Errorf("host receive_bytes_total=1000 missing from %d series", len(data))
+	}
+}
+
+func TestNetdevCollectorReturnsInvalidFilter(t *testing.T) {
+	originalConfig := configSnapshot()
+	t.Cleanup(func() { Set(originalConfig) })
+	testConfig := &Config{}
+	testConfig.NetdevStats.DeviceIncluded = "["
+	Set(testConfig)
+
+	collector := &netdevCollector{}
+	data, err := collector.collect(nil)
+	if err == nil || !strings.Contains(err.Error(), "netdev device filter") {
+		t.Fatalf("collect() error=%v, want netdev device filter error", err)
+	}
+	if data != nil {
+		t.Fatalf("collect() data=%v, want nil for invalid filter", data)
+	}
+}
+
+func TestNetdevCollectorReturnsHostFailure(t *testing.T) {
+	originalConfig := configSnapshot()
+	t.Cleanup(func() { Set(originalConfig) })
+	testConfig := &Config{}
+	testConfig.NetdevStats.DeviceIncluded = "eth0"
+	Set(testConfig)
+
+	root := withFixtureProcfs(t)
+	writeProcNetFile(t, root, 1111, "dev", netdevFixture)
+
+	collector := &netdevCollector{}
+	data, err := collector.collect(map[string]*pod.Container{
+		"a": {Name: "healthy", InitPid: 1111, Labels: map[string]any{"HostNamespace": "default"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "host netdev") {
+		t.Fatalf("collect() error=%v, want host netdev error", err)
+	}
+	if !findSeries(data, "container_receive_bytes_total", 1000) {
+		t.Errorf("partial container receive_bytes_total=1000 missing from %d series", len(data))
 	}
 }
 
@@ -159,21 +201,38 @@ func TestMemoryEventsSkipsBrokenContainer(t *testing.T) {
 	t.Cleanup(func() { Set(originalConfig) })
 	Set(&Config{})
 
-	withFakeContainers(t, map[string]*pod.Container{
+	containers := map[string]*pod.Container{
 		"a": {Name: "healthy", CgroupPath: "cgrp-a", Labels: map[string]any{"HostNamespace": "default"}},
 		"b": {Name: "broken", CgroupPath: "cgrp-b", Labels: map[string]any{"HostNamespace": "default"}},
-	})
+	}
 
 	fake := &fakeMemEventsCgroup{byPath: map[string]map[string]uint64{
 		"cgrp-a": {"oom_kill": 2},
 	}}
 	collector := &memEventsCollector{cgroup: fake}
 
-	data, err := collector.Update()
+	data, err := collector.collect(containers)
 	if err != nil {
-		t.Fatalf("Update() error=%v, want broken container skipped", err)
+		t.Fatalf("collect() error=%v, want broken container skipped", err)
 	}
 	if !findSeries(data, "container_oom_kill", 2) {
 		t.Errorf("healthy container's oom_kill=2 missing from %d series", len(data))
+	}
+}
+
+func TestMemoryEventsReturnsInvalidFilter(t *testing.T) {
+	originalConfig := configSnapshot()
+	t.Cleanup(func() { Set(originalConfig) })
+	testConfig := &Config{}
+	testConfig.MemoryEvents.Included = "["
+	Set(testConfig)
+
+	collector := &memEventsCollector{}
+	data, err := collector.collect(nil)
+	if err == nil || !strings.Contains(err.Error(), "memory events filter") {
+		t.Fatalf("collect() error=%v, want memory events filter error", err)
+	}
+	if data != nil {
+		t.Fatalf("collect() data=%v, want nil for invalid filter", data)
 	}
 }

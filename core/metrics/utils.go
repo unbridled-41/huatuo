@@ -1,4 +1,4 @@
-// Copyright 2025 The HuaTuo Authors
+// Copyright 2025, 2026 The HuaTuo Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,13 +17,7 @@ package collector
 import (
 	"bufio"
 	"os"
-
-	"huatuo-bamai/internal/pod"
 )
-
-// normalContainers is a seam for tests; production code uses
-// pod.NormalContainers.
-var normalContainers = pod.NormalContainers
 
 func CountLines(path string) (int64, error) {
 	f, err := os.Open(path)
