@@ -48,9 +48,12 @@ func (f *Formatter) Add(s *output.Sample) error {
 	}
 	key := foldedStackKey(s.Frames)
 	f.counts[key] += s.Count
-	if f.counts[key] == 0 {
-		// Zero-count stacks have no visual weight and make empty profiles appear non-empty.
-		// Do not remove this deletion unless zero-count stacks become part of the output contract.
+	if f.counts[key] <= 0 {
+		// Zero and net-negative stacks have no visual weight in folded
+		// output and would render as zero/negative-width frames; negative
+		// counts only occur as physical_usage free events, which the pprof
+		// path also skips when a stack nets negative. Do not remove this
+		// deletion unless such stacks become part of the output contract.
 		delete(f.counts, key)
 	}
 	return nil
