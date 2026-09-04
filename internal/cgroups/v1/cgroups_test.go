@@ -15,6 +15,7 @@
 package v1
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,6 +78,28 @@ func TestCpuQuotaAndPeriodEffectiveCPUCount(t *testing.T) {
 				t.Errorf("EffectiveCPUCount = %d, want %d", quota.EffectiveCPUCount, tt.want)
 			}
 		})
+	}
+}
+
+func TestMemoryUsageHandlesUnlimitedLimit(t *testing.T) {
+	root := t.TempDir()
+	oldRoot := paths.RootfsDefaultPath
+	paths.RootfsDefaultPath = root
+	t.Cleanup(func() { paths.RootfsDefaultPath = oldRoot })
+
+	path := filepath.Join("test", "memusage")
+	writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.usage_in_bytes"), "4096\n")
+	writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.limit_in_bytes"), "-1\n")
+
+	usage, err := (&CgroupV1{}).MemoryUsage(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// cgroup v1 reports an unlimited memcg as -1; the unlimited CPU quota
+	// path already maps the same sentinel to MaxUint64.
+	if usage.Usage != 4096 || usage.MaxLimited != math.MaxUint64 {
+		t.Errorf("MemoryUsage() = %+v, want Usage=4096 MaxLimited=MaxUint64", usage)
 	}
 }
 

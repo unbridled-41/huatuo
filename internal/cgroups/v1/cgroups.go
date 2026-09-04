@@ -175,11 +175,17 @@ func (c *CgroupV1) MemoryUsage(path string) (*stats.MemoryUsage, error) {
 		return nil, err
 	}
 
-	maxLimited, err := parseutil.ReadUint(paths.Path(subsystem.SubsystemMemory,
+	// cgroup v1 reports an unlimited memcg as -1, which ReadUint cannot
+	// parse; return the same MaxUint64 sentinel the unlimited CPU quota
+	// uses in CpuQuotaAndPeriod and that the v2 "max" read produces.
+	maxLimited, err := parseutil.ReadInt(paths.Path(subsystem.SubsystemMemory,
 		path, "memory.limit_in_bytes"))
 	if err != nil {
 		return nil, err
 	}
+	if maxLimited == -1 {
+		return &stats.MemoryUsage{Usage: usage, MaxLimited: math.MaxUint64}, nil
+	}
 
-	return &stats.MemoryUsage{Usage: usage, MaxLimited: maxLimited}, nil
+	return &stats.MemoryUsage{Usage: usage, MaxLimited: uint64(maxLimited)}, nil
 }
