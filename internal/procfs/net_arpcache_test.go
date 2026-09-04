@@ -101,6 +101,30 @@ func TestNetArpCache(t *testing.T) {
 		require.Empty(t, stats.Stats)
 	})
 
+	t.Run("PerCpuLinesAreSummed", func(t *testing.T) {
+		// The kernel prints one row of counters per possible CPU
+		// (neigh_stat_seq_show); the host total is the sum of all rows.
+		content := `entries allocs destroys hash_grows lookups hits dests
+0a 01 01 00 05 00 01
+01 02 00 01 06 01 00
+02 00 01 00 03 02 01`
+
+		err = os.WriteFile(arpCachePath, []byte(content), 0o600)
+		require.NoError(t, err)
+
+		stats, err := NetArpCache()
+		require.NoError(t, err)
+		require.NotNil(t, stats)
+		require.Len(t, stats.Stats, 7)
+		require.Equal(t, uint64(13), stats.Stats["entries"])
+		require.Equal(t, uint64(3), stats.Stats["allocs"])
+		require.Equal(t, uint64(2), stats.Stats["destroys"])
+		require.Equal(t, uint64(1), stats.Stats["hash_grows"])
+		require.Equal(t, uint64(14), stats.Stats["lookups"])
+		require.Equal(t, uint64(3), stats.Stats["hits"])
+		require.Equal(t, uint64(2), stats.Stats["dests"])
+	})
+
 	t.Run("MismatchedFieldsFewerValues", func(t *testing.T) {
 		content := `entries allocs destroys
 0a 0b`
