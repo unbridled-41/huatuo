@@ -47,8 +47,9 @@ func TestFormatterAdd_RemovesBalancedStack(t *testing.T) {
 
 func TestFormatterAdd_DropsNetNegativeStack(t *testing.T) {
 	// physical_usage free events report negative page counts
-	// (bpf/native_physical_usage.c); a stack that nets negative must not
-	// surface in folded output, matching the pprof path's net-negative skip.
+	// (bpf/native_physical_usage.c); stacks must net exactly, and a stack
+	// that nets non-positive must not surface in folded output, matching
+	// the pprof path's net-negative skip.
 	formatter := New()
 	freeFrames := []string{"process 123:worker", "folio_remove_rmap_ptes"}
 
@@ -73,6 +74,25 @@ func TestFormatterAdd_DropsNetNegativeStack(t *testing.T) {
 	const want = "process 123:worker;page_alloc 70\n"
 	if got.String() != want {
 		t.Fatalf("output = %q, want %q", got.String(), want)
+	}
+
+	// A stack whose running sum dips negative mid-window must keep its
+	// full net (+100 -150 +200 = 150), not just the part allocated after
+	// the dip.
+	formatter = New()
+	for _, count := range []int64{100, -150, 200} {
+		if err := formatter.Add(&output.Sample{Frames: allocFrames, Count: count}); err != nil {
+			t.Fatalf("add sample: %v", err)
+		}
+	}
+
+	got.Reset()
+	if err := formatter.Write(&got); err != nil {
+		t.Fatalf("write formatter: %v", err)
+	}
+	const wantNet = "process 123:worker;page_alloc 150\n"
+	if got.String() != wantNet {
+		t.Fatalf("output = %q, want %q", got.String(), wantNet)
 	}
 }
 
