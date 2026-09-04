@@ -15,6 +15,7 @@
 package v1
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -87,19 +88,33 @@ func TestMemoryUsageHandlesUnlimitedLimit(t *testing.T) {
 	paths.RootfsDefaultPath = root
 	t.Cleanup(func() { paths.RootfsDefaultPath = oldRoot })
 
-	path := filepath.Join("test", "memusage")
-	writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.usage_in_bytes"), "4096\n")
-	writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.limit_in_bytes"), "-1\n")
-
-	usage, err := (&CgroupV1{}).MemoryUsage(path)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name     string
+		limit    string
+		wantMax  uint64
+		wantUsed uint64
+	}{
+		// cgroup v1 reports an unlimited memcg as -1; the unlimited CPU
+		// quota path already maps the same sentinel to MaxUint64.
+		{name: "unlimited", limit: "-1\n", wantMax: math.MaxUint64, wantUsed: 4096},
+		{name: "decimalLimit", limit: "1073741824\n", wantMax: 1073741824, wantUsed: 2048},
 	}
 
-	// cgroup v1 reports an unlimited memcg as -1; the unlimited CPU quota
-	// path already maps the same sentinel to MaxUint64.
-	if usage.Usage != 4096 || usage.MaxLimited != math.MaxUint64 {
-		t.Errorf("MemoryUsage() = %+v, want Usage=4096 MaxLimited=MaxUint64", usage)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join("test", tt.name)
+			writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.usage_in_bytes"), fmt.Sprintf("%d\n", tt.wantUsed))
+			writeCgroupFile(t, paths.Path(subsystem.SubsystemMemory, path, "memory.limit_in_bytes"), tt.limit)
+
+			usage, err := (&CgroupV1{}).MemoryUsage(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if usage.Usage != tt.wantUsed || usage.MaxLimited != tt.wantMax {
+				t.Errorf("MemoryUsage() = %+v, want Usage=%d MaxLimited=%d", usage, tt.wantUsed, tt.wantMax)
+			}
+		})
 	}
 }
 
