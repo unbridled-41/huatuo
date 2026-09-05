@@ -44,3 +44,22 @@ func TestParseCPUIDListRejectsBeyondOnlineBound(t *testing.T) {
 		t.Fatal("parseCPUIDList(10) error = nil, want out-of-range error")
 	}
 }
+
+func TestParseCPUIDListFallbackToNumCPUWhenSysfsUnavailable(t *testing.T) {
+	orig := onlineMaxCPUID
+	defer func() { onlineMaxCPUID = orig }()
+	onlineMaxCPUID = func() int { return -1 }
+
+	highest := strconv.Itoa(runtime.NumCPU() - 1)
+	got, err := parseCPUIDList(highest)
+	if err != nil {
+		t.Fatalf("parseCPUIDList(%q) error = %v", highest, err)
+	}
+	if len(got) != 1 || got[0] != runtime.NumCPU()-1 {
+		t.Fatalf("parseCPUIDList(%q) = %v, want [%d]", highest, got, runtime.NumCPU()-1)
+	}
+
+	if _, err := parseCPUIDList(strconv.Itoa(runtime.NumCPU())); err == nil {
+		t.Fatal("parseCPUIDList(NumCPU) error = nil, want out-of-range error")
+	}
+}

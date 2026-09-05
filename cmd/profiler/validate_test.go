@@ -628,3 +628,18 @@ func TestParseCPUIDsHonorOnlineCPUList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int{maxID}, got)
 }
+
+func TestParseCPUIDsFallbackToNumCPUWhenSysfsUnavailable(t *testing.T) {
+	orig := onlineMaxCPUID
+	defer func() { onlineMaxCPUID = orig }()
+	onlineMaxCPUID = func() int { return -1 }
+
+	highest := strconv.Itoa(runtime.NumCPU() - 1)
+	got, err := parseCPUIDs(highest)
+	require.NoError(t, err)
+	assert.Equal(t, []int{runtime.NumCPU() - 1}, got)
+
+	_, err = parseCPUIDs(strconv.Itoa(runtime.NumCPU()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "out of range")
+}
