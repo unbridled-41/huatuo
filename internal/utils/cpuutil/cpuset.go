@@ -99,6 +99,50 @@ func MaxOnlineCPU(path string) int {
 	return maxID
 }
 
+// OnlineCPUIDs returns every CPU ID in a Linux online CPU list, in ascending
+// order.
+func OnlineCPUIDs(path string) ([]int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	list := strings.TrimSpace(string(data))
+	if list == "" {
+		return nil, fmt.Errorf("empty CPU list in %q", path)
+	}
+
+	var ids []int
+	for _, item := range strings.Split(list, ",") {
+		if item == "" {
+			return nil, fmt.Errorf("invalid CPU list %q", list)
+		}
+
+		firstText, lastText, isRange := strings.Cut(item, "-")
+		first, err := strconv.Atoi(firstText)
+		if err != nil {
+			return nil, fmt.Errorf("parse CPU %q: %w", item, err)
+		}
+
+		last := first
+		if isRange {
+			last, err = strconv.Atoi(lastText)
+			if err != nil {
+				return nil, fmt.Errorf("parse CPU range %q: %w", item, err)
+			}
+			if last < first {
+				return nil, fmt.Errorf("invalid CPU range %q", item)
+			}
+		}
+
+		for id := first; id <= last; id++ {
+			ids = append(ids, id)
+		}
+	}
+
+	return ids, nil
+}
+
 // BoundCores returns the effective CPU capacity after applying quota and cpuset.
 func BoundCores(quota, period, effective, fallback uint64) (float64, error) {
 	if effective == 0 {

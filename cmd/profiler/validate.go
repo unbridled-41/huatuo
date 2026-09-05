@@ -25,6 +25,7 @@ import (
 
 	"huatuo-bamai/internal/pod"
 	pcontext "huatuo-bamai/internal/profiler/context"
+	"huatuo-bamai/internal/utils/cpuutil"
 	"huatuo-bamai/pkg/profiling"
 )
 
@@ -388,8 +389,25 @@ func validateAggregationWindow(duration, interval int) error {
 	return nil
 }
 
+// onlineMaxCPUID reads the highest online CPU ID from sysfs; overridable in
+// tests.
+var onlineMaxCPUID = func() int {
+	return cpuutil.MaxOnlineCPU(cpuutil.SystemCPUOnlinePath)
+}
+
+// cpuIDBound returns the exclusive upper bound of valid CPU IDs for
+// profiling: one past the highest sysfs online CPU ID, or the usable CPU
+// count when sysfs is unavailable. An online CPU count is not an upper CPU
+// ID when hotplug leaves holes.
+func cpuIDBound() int {
+	if maxID := onlineMaxCPUID(); maxID >= 0 {
+		return maxID + 1
+	}
+	return runtime.NumCPU()
+}
+
 func parseCPUIDs(s string) ([]int, error) {
-	return parseCPUIDsWithLimit(s, runtime.NumCPU())
+	return parseCPUIDsWithLimit(s, cpuIDBound())
 }
 
 func parseCPUIDsWithLimit(s string, numCPU int) ([]int, error) {

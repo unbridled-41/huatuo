@@ -617,3 +617,14 @@ func TestValidatePythonProfileOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCPUIDsHonorOnlineCPUList(t *testing.T) {
+	orig := onlineMaxCPUID
+	defer func() { onlineMaxCPUID = orig }()
+	maxID := runtime.NumCPU()*2 + 13
+	onlineMaxCPUID = func() int { return maxID }
+
+	got, err := parseCPUIDs(strconv.Itoa(maxID))
+	require.NoError(t, err)
+	assert.Equal(t, []int{maxID}, got)
+}
