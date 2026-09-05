@@ -31,7 +31,7 @@ type stubDriverInfoSource struct {
 	err  error
 }
 
-func (s stubDriverInfoSource) DriverInfo(string) (ethtool.DrvInfo, error) {
+func (s *stubDriverInfoSource) DriverInfo(string) (ethtool.DrvInfo, error) {
 	return s.info, s.err
 }
 
@@ -42,7 +42,7 @@ func newTestNetdevTracing(t *testing.T) *netdevTracing {
 	assert.NoError(t, err)
 
 	nd := attr.TracingData.(*netdevTracing)
-	nd.eth = stubDriverInfoSource{
+	nd.eth = &stubDriverInfoSource{
 		info: ethtool.DrvInfo{Driver: "veth", Version: "1.0", FwVersion: "N/A"},
 	}
 	return nd
@@ -103,7 +103,7 @@ func TestHandleEventSkipsNewInterfacesWithoutDriverInfo(t *testing.T) {
 	deviceMatcher, err := matcher.NewListMatcher([]string{"veth.*"})
 	assert.NoError(t, err)
 	nd.deviceMatcher = deviceMatcher
-	nd.eth = stubDriverInfoSource{err: unix.EOPNOTSUPP}
+	nd.eth = &stubDriverInfoSource{err: unix.EOPNOTSUPP}
 
 	nd.handleEvent(netdevLinkUpdate(unix.RTM_NEWLINK, "veth0", unix.IFF_UP))
 
