@@ -86,14 +86,17 @@ func (c *netConntrack) Update() ([]*metric.Data, error) {
 		return nil, err
 	}
 
+	// Sibling *_percent metrics (cpu_stat wait_sum_percent, disk_io
+	// disk_iowait_percent) report 0-100, so alert thresholds such as >90
+	// fire as expected.
 	usagePercent := float64(0)
 	if stats.limit > 0 {
-		usagePercent = stats.entries / stats.limit
+		usagePercent = stats.entries / stats.limit * 100
 	}
 
 	return []*metric.Data{
 		metric.NewGaugeData("entries", stats.entries, "currently tracked connections in the kernel conntrack table", nil),
 		metric.NewGaugeData("entries_limit", stats.limit, "conntrack table capacity", nil),
-		metric.NewGaugeData("usage_percent", usagePercent, "conntrack table usage as a fraction of its limit", nil),
+		metric.NewGaugeData("usage_percent", usagePercent, "conntrack table usage as a percentage of its limit (0-100)", nil),
 	}, nil
 }

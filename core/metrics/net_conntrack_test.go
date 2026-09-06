@@ -77,13 +77,35 @@ func TestNetConntrackUpdate(t *testing.T) {
 	}{
 		{name: "entries", value: 1234, metricType: metricpkg.MetricTypeGauge},
 		{name: "entries_limit", value: 262144, metricType: metricpkg.MetricTypeGauge},
-		{name: "usage_percent", value: 1234.0 / 262144.0, metricType: metricpkg.MetricTypeGauge},
+		{name: "usage_percent", value: 1234.0 / 262144.0 * 100, metricType: metricpkg.MetricTypeGauge},
 	}
 	for i, exp := range expected {
 		assert.Equal(t, exp.name, metrics[i].Name())
 		assert.Equal(t, exp.value, metrics[i].Value)
 		assert.Equal(t, exp.metricType, metrics[i].Type())
 	}
+}
+
+// TestNetConntrackUsagePercentScale pins usage_percent to the repo-wide 0-100
+// scale of the sibling *_percent metrics: a percentage alert threshold such
+// as >90 must fire once the table is 91% full, which a 0-1 ratio (0.91)
+// would never do.
+func TestNetConntrackUsagePercentScale(t *testing.T) {
+	conntrackDir := newConntrackTestRoot(t, true)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(conntrackDir, "nf_conntrack_count"), []byte("91\n"), 0o600))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(conntrackDir, "nf_conntrack_max"), []byte("100\n"), 0o600))
+
+	collector := &netConntrack{}
+	metrics, err := collector.Update()
+	require.NoError(t, err)
+	require.Len(t, metrics, 3)
+
+	usage := metrics[2]
+	assert.Equal(t, "usage_percent", usage.Name())
+	assert.Equal(t, float64(91), usage.Value,
+		"usage_percent must be 0-100 so percentage thresholds fire")
 }
 
 func TestNetConntrackNotSupported(t *testing.T) {
