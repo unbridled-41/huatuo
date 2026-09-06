@@ -87,7 +87,12 @@ func TestNetUdpUpdate(t *testing.T) {
 }
 
 func TestNetUdpNoDataWithoutUdpSection(t *testing.T) {
-	collector := newUdpTestCollector(t, testUdpSnmp[:strings.Index(testUdpSnmp, "Udp: InDatagrams")])
+	// Drop the Udp section (and everything after it) from the fixture,
+	// keeping only the Ip/Icmp/IcmpMsg/Tcp sections.
+	noUdp := strings.SplitN(testUdpSnmp, "\nUdp:", 2)[0]
+	require.NotContains(t, noUdp, "Udp:")
+
+	collector := newUdpTestCollector(t, noUdp)
 
 	_, err := collector.Update()
 	require.ErrorIs(t, err, metricpkg.ErrNoData)

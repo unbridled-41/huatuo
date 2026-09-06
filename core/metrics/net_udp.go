@@ -49,20 +49,34 @@ var udpFields = []struct {
 	name string
 	help string
 }{
-	{"InDatagrams", "datagrams_received_total",
-		"Total number of UDP datagrams delivered to userspace."},
-	{"OutDatagrams", "datagrams_sent_total",
-		"Total number of UDP datagrams sent."},
-	{"InErrors", "in_errors_total",
-		"Total number of UDP datagrams dropped for reasons other than a full receive buffer, e.g. invalid checksum."},
-	{"NoPorts", "no_ports_total",
-		"Total number of UDP datagrams received with no application listening on the destination port."},
-	{"RcvbufErrors", "rcvbuf_errors_total",
-		"Total number of UDP datagrams dropped because the receiving socket buffer was full."},
-	{"SndbufErrors", "sndbuf_errors_total",
-		"Total number of UDP datagrams dropped because the sending socket buffer was full."},
-	{"InCsumErrors", "in_csum_errors_total",
-		"Total number of UDP datagrams dropped because of an invalid checksum."},
+	{
+		"InDatagrams", "datagrams_received_total",
+		"Total number of UDP datagrams delivered to userspace.",
+	},
+	{
+		"OutDatagrams", "datagrams_sent_total",
+		"Total number of UDP datagrams sent.",
+	},
+	{
+		"InErrors", "in_errors_total",
+		"Total number of UDP datagrams dropped for reasons other than a full receive buffer, e.g. invalid checksum.",
+	},
+	{
+		"NoPorts", "no_ports_total",
+		"Total number of UDP datagrams received with no application listening on the destination port.",
+	},
+	{
+		"RcvbufErrors", "rcvbuf_errors_total",
+		"Total number of UDP datagrams dropped because the receiving socket buffer was full.",
+	},
+	{
+		"SndbufErrors", "sndbuf_errors_total",
+		"Total number of UDP datagrams dropped because the sending socket buffer was full.",
+	},
+	{
+		"InCsumErrors", "in_csum_errors_total",
+		"Total number of UDP datagrams dropped because of an invalid checksum.",
+	},
 }
 
 // parseUdpSnmp parses the "Udp:" header/value line pair from
