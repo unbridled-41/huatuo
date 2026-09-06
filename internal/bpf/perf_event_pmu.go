@@ -22,18 +22,11 @@ import (
 	"fmt"
 	"runtime"
 
-	"huatuo-bamai/internal/utils/cpuutil"
-
 	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 )
 
 var errInvalidPerfEventOption = errors.New("invalid perf event option")
-
-// onlineCPUIDs reads the sysfs online CPU list; overridable in tests.
-var onlineCPUIDs = func() ([]int, error) {
-	return cpuutil.OnlineCPUIDs(cpuutil.SystemCPUOnlinePath)
-}
 
 type perfEventSampleMode uint8
 
@@ -112,7 +105,10 @@ func attachPerfEvent(opt *perfEventOption) (*perfEventAttach, error) {
 	attr := newPerfEventAttr(opt)
 	cpuIDs := opt.cpuIDs
 	if len(cpuIDs) == 0 {
-		cpuIDs = defaultPerfCPUIDs()
+		cpuIDs = make([]int, runtime.NumCPU())
+		for cpuID := range cpuIDs {
+			cpuIDs[cpuID] = cpuID
+		}
 	}
 
 	fds := make([]int, 0, len(cpuIDs))
@@ -125,21 +121,6 @@ func attachPerfEvent(opt *perfEventOption) (*perfEventAttach, error) {
 	}
 
 	return &perfEventAttach{fds: fds}, nil
-}
-
-// defaultPerfCPUIDs returns the CPU list used when the caller does not pin
-// the perf event to specific CPUs: one perf event per online CPU, falling
-// back to the usable CPU count when the sysfs online list cannot be read.
-// An online CPU count is not an upper CPU ID when hotplug leaves holes.
-func defaultPerfCPUIDs() []int {
-	ids, err := onlineCPUIDs()
-	if err != nil || len(ids) == 0 {
-		ids = make([]int, runtime.NumCPU())
-		for cpuID := range ids {
-			ids[cpuID] = cpuID
-		}
-	}
-	return ids
 }
 
 func newPerfEventAttr(opt *perfEventOption) unix.PerfEventAttr {

@@ -29,7 +29,6 @@ import (
 	_ "huatuo-bamai/internal/profiler/output/raw"
 	psignal "huatuo-bamai/internal/profiler/signal"
 	"huatuo-bamai/internal/toolstream"
-	"huatuo-bamai/internal/utils/cpuutil"
 	"huatuo-bamai/pkg/profiling"
 
 	"github.com/urfave/cli/v2"
@@ -227,24 +226,8 @@ func initToolstreamClient(cliCtx *cli.Context, format output.OutputFormat) (*too
 	return client, nil
 }
 
-// onlineMaxCPUID reads the highest online CPU ID from sysfs; overridable in
-// tests.
-var onlineMaxCPUID = func() int {
-	return cpuutil.MaxOnlineCPU(cpuutil.SystemCPUOnlinePath)
-}
-
-// cpuIDBound returns the exclusive upper bound of valid CPU IDs for
-// profiling: one past the highest sysfs online CPU ID, or the usable CPU
-// count when sysfs is unavailable.
-func cpuIDBound() int {
-	if maxID := onlineMaxCPUID(); maxID >= 0 {
-		return maxID + 1
-	}
-	return runtime.NumCPU()
-}
-
 func parseCPUIDList(s string) ([]int, error) {
-	numCPU := cpuIDBound()
+	numCPU := runtime.NumCPU()
 	var cpuIDs []int
 	seen := make(map[int]bool)
 
