@@ -157,3 +157,24 @@ func TestOnlineCPUIDsMissingFile(t *testing.T) {
 		t.Fatal("OnlineCPUIDs() error = nil, want error")
 	}
 }
+
+func TestFormatCPUList(t *testing.T) {
+	tests := []struct {
+		name string
+		ids  []int
+		want string
+	}{
+		{name: "sparse", ids: []int{0, 1, 2, 3, 8, 9}, want: "0-3,8-9"},
+		{name: "single", ids: []int{7}, want: "7"},
+		{name: "unmerged pairs", ids: []int{0, 2, 4}, want: "0,2,4"},
+		{name: "empty", ids: nil, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FormatCPUList(tt.ids); got != tt.want {
+				t.Errorf("FormatCPUList(%v) = %q, want %q", tt.ids, got, tt.want)
+			}
+		})
+	}
+}

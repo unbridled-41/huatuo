@@ -143,6 +143,29 @@ func OnlineCPUIDs(path string) ([]int, error) {
 	return ids, nil
 }
 
+// FormatCPUList renders ascending CPU IDs as a compact Linux-style CPU list,
+// e.g. "0-3,8-9", matching the format of /sys/devices/system/cpu/online.
+func FormatCPUList(ids []int) string {
+	var list strings.Builder
+	for i := 0; i < len(ids); {
+		start := ids[i]
+		for i+1 < len(ids) && ids[i+1] == ids[i]+1 {
+			i++
+		}
+
+		if list.Len() > 0 {
+			list.WriteByte(',')
+		}
+		if ids[i] == start {
+			fmt.Fprintf(&list, "%d", start)
+		} else {
+			fmt.Fprintf(&list, "%d-%d", start, ids[i])
+		}
+		i++
+	}
+	return list.String()
+}
+
 // BoundCores returns the effective CPU capacity after applying quota and cpuset.
 func BoundCores(quota, period, effective, fallback uint64) (float64, error) {
 	if effective == 0 {

@@ -21,24 +21,49 @@ import (
 )
 
 func TestParseCPUIDListHonorsOnlineCPUList(t *testing.T) {
-	orig := onlineMaxCPUID
-	defer func() { onlineMaxCPUID = orig }()
-	maxID := runtime.NumCPU()*2 + 13
-	onlineMaxCPUID = func() int { return maxID }
+	orig := onlineCPUIDs
+	defer func() { onlineCPUIDs = orig }()
+	// Sparse online set with a hole: 4-7 are offline but inside the
+	// 0-9 range, 8-9 are online above runtime.NumCPU().
+	onlineCPUIDs = func() []int { return []int{0, 1, 2, 3, 8, 9} }
 
-	got, err := parseCPUIDList(strconv.Itoa(maxID))
+	got, err := parseCPUIDList("8,9")
 	if err != nil {
-		t.Fatalf("parseCPUIDList(%q) error = %v", strconv.Itoa(maxID), err)
+		t.Fatalf("parseCPUIDList(8,9) error = %v", err)
 	}
-	if len(got) != 1 || got[0] != maxID {
-		t.Fatalf("parseCPUIDList(%q) = %v, want [%d]", strconv.Itoa(maxID), got, maxID)
+	if len(got) != 2 || got[0] != 8 || got[1] != 9 {
+		t.Fatalf("parseCPUIDList(8,9) = %v, want [8 9]", got)
+	}
+}
+
+// TestParseCPUIDListRejectsOfflineCPU pins the membership contract: an ID
+// inside the online range can still be offline, and profiling it would fail
+// perf_event_open later.
+func TestParseCPUIDListRejectsOfflineCPU(t *testing.T) {
+	orig := onlineCPUIDs
+	defer func() { onlineCPUIDs = orig }()
+	onlineCPUIDs = func() []int { return []int{0, 1, 2, 3, 8, 9} }
+
+	err := func() error {
+		_, err := parseCPUIDList("4")
+		return err
+	}()
+	if err == nil {
+		t.Fatal("parseCPUIDList(4) error = nil, want not-online error")
+	}
+	if want := "cpuid 4 is not online (online: 0-3,8-9)"; err.Error() != want {
+		t.Fatalf("parseCPUIDList(4) error = %q, want %q", err.Error(), want)
+	}
+
+	if _, err := parseCPUIDList("4-7"); err == nil {
+		t.Fatal("parseCPUIDList(4-7) error = nil, want not-online error")
 	}
 }
 
 func TestParseCPUIDListRejectsBeyondOnlineBound(t *testing.T) {
-	orig := onlineMaxCPUID
-	defer func() { onlineMaxCPUID = orig }()
-	onlineMaxCPUID = func() int { return 9 }
+	orig := onlineCPUIDs
+	defer func() { onlineCPUIDs = orig }()
+	onlineCPUIDs = func() []int { return []int{0, 1, 2, 3, 8, 9} }
 
 	if _, err := parseCPUIDList("10"); err == nil {
 		t.Fatal("parseCPUIDList(10) error = nil, want out-of-range error")
@@ -46,9 +71,9 @@ func TestParseCPUIDListRejectsBeyondOnlineBound(t *testing.T) {
 }
 
 func TestParseCPUIDListFallbackToNumCPUWhenSysfsUnavailable(t *testing.T) {
-	orig := onlineMaxCPUID
-	defer func() { onlineMaxCPUID = orig }()
-	onlineMaxCPUID = func() int { return -1 }
+	orig := onlineCPUIDs
+	defer func() { onlineCPUIDs = orig }()
+	onlineCPUIDs = func() []int { return nil }
 
 	highest := strconv.Itoa(runtime.NumCPU() - 1)
 	got, err := parseCPUIDList(highest)

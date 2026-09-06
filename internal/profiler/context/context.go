@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -227,24 +228,28 @@ func initToolstreamClient(cliCtx *cli.Context, format output.OutputFormat) (*too
 	return client, nil
 }
 
-// onlineMaxCPUID reads the highest online CPU ID from sysfs; overridable in
-// tests.
-var onlineMaxCPUID = func() int {
-	return cpuutil.MaxOnlineCPU(cpuutil.SystemCPUOnlinePath)
-}
-
-// cpuIDBound returns the exclusive upper bound of valid CPU IDs for
-// profiling: one past the highest sysfs online CPU ID, or the usable CPU
-// count when sysfs is unavailable.
-func cpuIDBound() int {
-	if maxID := onlineMaxCPUID(); maxID >= 0 {
-		return maxID + 1
+// onlineCPUIDs reads the sysfs online CPU list; overridable in tests. The
+// result is nil when the list is unavailable.
+var onlineCPUIDs = func() []int {
+	ids, err := cpuutil.OnlineCPUIDs(cpuutil.SystemCPUOnlinePath)
+	if err != nil || len(ids) == 0 {
+		return nil
 	}
-	return runtime.NumCPU()
+	return ids
 }
 
+// parseCPUIDList validates --cpuid against the sysfs online CPU list:
+// hotplug leaves holes, so an ID inside the online range can still be
+// offline, and profiling an offline CPU fails perf_event_open. When sysfs
+// is unavailable the usable CPU count bounds the IDs.
 func parseCPUIDList(s string) ([]int, error) {
-	numCPU := cpuIDBound()
+	onlineIDs := onlineCPUIDs()
+
+	numCPU := runtime.NumCPU()
+	if onlineIDs != nil {
+		numCPU = onlineIDs[len(onlineIDs)-1] + 1
+	}
+
 	var cpuIDs []int
 	seen := make(map[int]bool)
 
@@ -303,6 +308,15 @@ func parseCPUIDList(s string) ([]int, error) {
 
 	if len(cpuIDs) == 0 {
 		return nil, fmt.Errorf("cpuid list is empty")
+	}
+
+	if onlineIDs != nil {
+		for _, id := range cpuIDs {
+			if !slices.Contains(onlineIDs, id) {
+				return nil, fmt.Errorf("cpuid %d is not online (online: %s)",
+					id, cpuutil.FormatCPUList(onlineIDs))
+			}
+		}
 	}
 
 	return cpuIDs, nil
